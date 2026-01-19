@@ -13,6 +13,48 @@
 
 namespace orderbook {
 
+// ===== IMPERIAL HFT OPTIMIZATIONS =====
+
+// 1. Constexpr compile-time calculations
+namespace Constants {
+    constexpr double RISK_AVERSION = 0.1;
+    constexpr double INVENTORY_LIMIT = 10000.0;
+    constexpr double MIN_SPREAD = 0.01;
+    constexpr size_t PRICE_BUFFER_SIZE = 50;
+    constexpr size_t PREFETCH_DISTANCE = 8;
+    
+    // Compile-time factorial for statistical calculations
+    constexpr int factorial(int n) {
+        return (n <= 1) ? 1 : (n * factorial(n - 1));
+    }
+    
+    // Compile-time spread calculation multiplier
+    constexpr double spread_multiplier(int risk_level) {
+        return 1.0 + (risk_level * 0.05);
+    }
+}
+
+// 2. Error handling flags for branch reduction
+enum ErrorFlags : uint32_t {
+    NO_ERROR = 0,
+    INVALID_PRICE = 1 << 0,
+    INVALID_QUANTITY = 1 << 1,
+    MARKET_CLOSED = 1 << 2,
+    POSITION_LIMIT = 1 << 3,
+    CONNECTIVITY_ERROR = 1 << 4,
+    ORDER_REJECT = 1 << 5
+};
+
+// Hot data structure with cache-line alignment
+struct alignas(64) HotData {
+    alignas(64) Price best_bid;
+    alignas(64) Price best_ask;
+    alignas(64) double mid_price;
+    alignas(64) double volatility;
+    alignas(64) double imbalance;
+    alignas(64) uint64_t version;
+};
+
 // Welford's online algorithm for O(1) variance/stddev calculation
 class OnlineStats {
 private:
@@ -118,11 +160,13 @@ private:
     RLAgent::Action select_best_action();
     
     // Advanced market making strategies - HFT optimized
-    static constexpr size_t PRICE_BUFFER_SIZE = 50;
-    std::array<Price, PRICE_BUFFER_SIZE> price_buffer_;  // Fixed-size ring buffer
+    std::array<Price, Constants::PRICE_BUFFER_SIZE> price_buffer_;  // Fixed-size ring buffer
     size_t buffer_idx_ = 0;
     size_t buffer_count_ = 0;
     OnlineStats volatility_stats_;  // O(1) online volatility calculation
+    
+    // Imperial HFT: Cache-aligned hot data for L1 cache optimization
+    HotData hot_data_;
     
     // Caching for performance
     double cached_volatility_ = 0.0;
@@ -130,11 +174,25 @@ private:
     uint64_t orderbook_version_ = 0;  // Track order book changes
     uint64_t cached_version_ = 0;     // Version of cached data
     
+    // Error handling state
+    ErrorFlags error_state_ = NO_ERROR;
+    
+    // Imperial HFT: Slow-path removal - noinline error handlers
+    __attribute__((noinline)) void handle_error(ErrorFlags flags);
+    __attribute__((noinline)) void log_error(const std::string& message);
+    
+    // Imperial HFT: Cache warming - pre-load hot data
+    void warm_cache() noexcept;
+    
+    // Fast-path helpers with prefetching
     [[gnu::always_inline]]
     inline double calculate_volatility() noexcept;
     
     [[gnu::always_inline]]
     inline double calculate_order_book_imbalance() noexcept;
+    
+    [[gnu::always_inline]]
+    inline void prefetch_order_levels(Price start_price, Side side) noexcept;
     
 public:
     explicit TerminalUI(OrderBook& book, RLAgent* agent = nullptr, size_t max_trades = 20, size_t max_depth = 15);

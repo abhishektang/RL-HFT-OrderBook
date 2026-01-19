@@ -1,0 +1,51 @@
+======================================================================
+                    TRADING SESSION REPORT
+======================================================================
+
+📊 SESSION SUMMARY
+  Symbol: AAPL
+  Session Duration: Trading session completed
+
+📖 ORDER BOOK STATISTICS
+  Total Orders Placed: 1,247
+  Active Bid Levels: 15
+  Active Ask Levels: 18
+  Final Best Bid: $245.05
+  Final Best Ask: $245.10
+  Final Spread: $0.05
+
+🤖 RL AGENT PERFORMANCE
+  Initial Capital: $1,000,000.00
+  Final Portfolio Value: $1,002,345.67
+  --------------------------------------------------
+
+📍 POSITION DETAILS
+  Current Position: 150 shares
+  Average Entry Price: $244.85
+
+💰 PROFIT & LOSS BREAKDOWN
+  Realized P&L: +$1,850.25
+  Unrealized P&L: +$495.42
+  --------------------------------------------------
+  TOTAL P&L: ✅ +$2,345.67
+  Return: +0.2346%
+
+📈 TRADING ACTIVITY
+  Total Trades Executed: 47
+  Total Volume Traded: 4,700 shares
+  Average Trade Size: 100 shares
+  Average P&L per Trade: $49.91
+
+🎯 PERFORMANCE SUMMARY
+  Status: PROFITABLE ✅
+  The agent successfully generated positive returns!
+
+⚠️  RISK METRICS
+  Current Exposure: $37,500.00 (at ~$250/share)
+  Position Limit: Not exceeded
+
+======================================================================
+Thank you for using the Order Book Trading System!
+======================================================================
+
+EXAMPLE OUTPUT - Actual values will vary based on trading activity

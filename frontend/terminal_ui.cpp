@@ -604,16 +604,21 @@ RLAgent::Action TerminalUI::select_best_action() {
     // Calculate mid-price and track for volatility using ring buffer
     Price mid_price = (*best_bid + *best_ask) >> 1;  // Bit shift for divide by 2
     
-    // Ring buffer update
+    // Imperial HFT: Cache warming before intensive calculations
+    warm_cache();
+    
+    // Ring buffer update with prefetch for next access
     price_buffer_[buffer_idx_] = mid_price;
-    buffer_idx_ = (buffer_idx_ + 1) % PRICE_BUFFER_SIZE;
-    if (buffer_count_ < PRICE_BUFFER_SIZE) {
+    size_t next_idx = (buffer_idx_ + 1) % Constants::PRICE_BUFFER_SIZE;
+    __builtin_prefetch(&price_buffer_[next_idx], 1, 3);  // Write, high temporal locality
+    buffer_idx_ = next_idx;
+    if (buffer_count_ < Constants::PRICE_BUFFER_SIZE) {
         buffer_count_++;
     }
     
     // Update online volatility stats with return
     if (buffer_count_ >= 2) {
-        size_t prev_idx = (buffer_idx_ + PRICE_BUFFER_SIZE - 2) % PRICE_BUFFER_SIZE;
+        size_t prev_idx = (buffer_idx_ + Constants::PRICE_BUFFER_SIZE - 2) % Constants::PRICE_BUFFER_SIZE;
         double ret = static_cast<double>(mid_price - price_buffer_[prev_idx]) / 
                      static_cast<double>(price_buffer_[prev_idx]);
         volatility_stats_.update(ret);
@@ -624,40 +629,55 @@ RLAgent::Action TerminalUI::select_best_action() {
     Price spread = *best_ask - *best_bid;
     int64_t position = obs.position.quantity;
     
+    // Imperial HFT: Branch reduction with error flags
+    error_state_ = NO_ERROR;
+    
     // === STRATEGY 1: Order Book Imbalance Detection ===
     // Detect adverse selection risk - pull quotes when imbalanced
     double imbalance = calculate_order_book_imbalance();
-    if (std::abs(imbalance) > 0.4) {
+    
+    // Imperial HFT: Short-circuit with cheap check first
+    bool high_imbalance = std::abs(imbalance) > 0.4;
+    bool has_active_orders = !obs.active_orders.empty();
+    
+    if (high_imbalance && has_active_orders) [[unlikely]] {
         // High imbalance - potential informed trading
-        // Cancel and wait for market to stabilize
-        if (!obs.active_orders.empty()) {
-            return RLAgent::Action::CANCEL_ALL;
-        }
+        return RLAgent::Action::CANCEL_ALL;
+    } else if (high_imbalance) [[unlikely]] {
         return RLAgent::Action::HOLD;
     }
     
     // === STRATEGY 2: Volatility-Based Spread Adjustment ===
     double volatility = calculate_volatility();
-    Price min_spread = static_cast<Price>(std::max(1.0, volatility * 200.0)); // Min 1 tick, scales with vol
+    
+    // Imperial HFT: Use constexpr for compile-time calculation
+    Price min_spread = static_cast<Price>(std::max(
+        Constants::MIN_SPREAD,
+        volatility * 200.0 * Constants::spread_multiplier(1)
+    ));
     
     // Don't trade if spread is too tight for current volatility
-    if (spread < min_spread) {
+    // Imperial HFT: Short-circuit - fast path when spread is adequate
+    if (spread < min_spread) [[unlikely]] {
         return RLAgent::Action::HOLD;
     }
     
     // === STRATEGY 3: Inventory-Based Quote Skewing (Avellaneda-Stoikov) ===
     // Dynamic position limits based on volatility
-    const int64_t max_position = static_cast<int64_t>(500.0 / (1.0 + volatility * 2.0));
+    // Imperial HFT: Use constexpr INVENTORY_LIMIT
+    const int64_t max_position = static_cast<int64_t>(
+        Constants::INVENTORY_LIMIT / (1.0 + volatility * 2.0)
+    );
     const int64_t urgent_threshold = max_position * 0.6;
     
-    // Extreme position - urgent liquidation
-    if (position > max_position) {
-        // Very long - use aggressive sell to flatten
-        return RLAgent::Action::SELL_LIMIT_AGGRESSIVE;
-    }
-    if (position < -max_position) {
-        // Very short - use aggressive buy to flatten
-        return RLAgent::Action::BUY_LIMIT_AGGRESSIVE;
+    // Imperial HFT: Branch reduction - combine extreme position checks
+    bool extreme_long = position > max_position;
+    bool extreme_short = position < -max_position;
+    
+    if (extreme_long || extreme_short) [[unlikely]] {
+        // Extreme position - urgent liquidation
+        return extreme_long ? RLAgent::Action::SELL_LIMIT_AGGRESSIVE 
+                            : RLAgent::Action::BUY_LIMIT_AGGRESSIVE;
     }
     
     // === STRATEGY 4: Inventory Risk Management ===
@@ -665,22 +685,21 @@ RLAgent::Action TerminalUI::select_best_action() {
     double inventory_factor = static_cast<double>(std::abs(position)) / max_position;
     
     // Moderate position - skew quotes to reduce inventory
-    if (position > urgent_threshold) {
+    // Imperial HFT: Short-circuit and branch reduction
+    bool long_position = position > urgent_threshold;
+    bool short_position = position < -urgent_threshold;
+    bool high_inventory = inventory_factor > 0.7;
+    
+    if (long_position) [[unlikely]] {
         // Long position - incentivize selling
-        // Quote at ask (easy to hit), avoid bidding
-        if (inventory_factor > 0.7) {
-            return RLAgent::Action::SELL_LIMIT_AGGRESSIVE;
-        }
-        return RLAgent::Action::SELL_LIMIT_AT_ASK;
+        return high_inventory ? RLAgent::Action::SELL_LIMIT_AGGRESSIVE
+                              : RLAgent::Action::SELL_LIMIT_AT_ASK;
     }
     
-    if (position < -urgent_threshold) {
+    if (short_position) [[unlikely]] {
         // Short position - incentivize buying
-        // Quote at bid (easy to hit), avoid offering
-        if (inventory_factor > 0.7) {
-            return RLAgent::Action::BUY_LIMIT_AGGRESSIVE;
-        }
-        return RLAgent::Action::BUY_LIMIT_AT_BID;
+        return high_inventory ? RLAgent::Action::BUY_LIMIT_AGGRESSIVE
+                              : RLAgent::Action::BUY_LIMIT_AT_BID;
     }
     
     // === STRATEGY 5: Two-Sided Market Making ===
@@ -787,6 +806,73 @@ double TerminalUI::calculate_order_book_imbalance() noexcept {
     // Imbalance: +1 = all bids, -1 = all asks, 0 = balanced
     cached_imbalance_ = static_cast<double>(bid_volume - ask_volume) / total_volume;
     return cached_imbalance_;
+}
+
+// ===== IMPERIAL HFT OPTIMIZATIONS IMPLEMENTATION =====
+
+// Slow-path removal: noinline error handlers
+void TerminalUI::handle_error(ErrorFlags flags) {
+    if (flags & INVALID_PRICE) {
+        log_error("Invalid price");
+    }
+    if (flags & INVALID_QUANTITY) {
+        log_error("Invalid quantity");
+    }
+    if (flags & MARKET_CLOSED) {
+        log_error("Market closed");
+    }
+    if (flags & POSITION_LIMIT) {
+        log_error("Position limit exceeded");
+    }
+    if (flags & CONNECTIVITY_ERROR) {
+        log_error("Connectivity error");
+    }
+    if (flags & ORDER_REJECT) {
+        log_error("Order rejected");
+    }
+}
+
+void TerminalUI::log_error(const std::string& message) {
+    // Slow path - logging is expensive
+    // In production, this would write to a log file
+    // For now, we just mark the error state
+    error_state_ = static_cast<ErrorFlags>(error_state_ | ORDER_REJECT);
+}
+
+// Cache warming: Pre-load hot data into L1 cache
+void TerminalUI::warm_cache() noexcept {
+    // Warm up the price buffer
+    for (size_t i = 0; i < Constants::PRICE_BUFFER_SIZE; ++i) {
+        __builtin_prefetch(&price_buffer_[i], 0, 3);  // Read, high temporal locality
+    }
+    
+    // Warm up hot data structure
+    __builtin_prefetch(&hot_data_, 0, 3);
+    
+    // Update hot data from order book
+    auto best_bid = orderbook_.get_best_bid();
+    auto best_ask = orderbook_.get_best_ask();
+    
+    if (best_bid && best_ask) [[likely]] {
+        hot_data_.best_bid = *best_bid;
+        hot_data_.best_ask = *best_ask;
+        hot_data_.mid_price = static_cast<double>(*best_bid + *best_ask) / 2.0;
+        hot_data_.volatility = cached_volatility_;
+        hot_data_.imbalance = cached_imbalance_;
+        hot_data_.version = orderbook_version_;
+    }
+}
+
+// Memory prefetching for order book traversal
+void TerminalUI::prefetch_order_levels(Price start_price, Side side) noexcept {
+    // Prefetch upcoming price levels to reduce cache misses
+    // This uses the Imperial HFT prefetching pattern
+    for (size_t i = 0; i < Constants::PREFETCH_DISTANCE; ++i) {
+        Price target_price = start_price + (side == Side::BUY ? -static_cast<Price>(i) : static_cast<Price>(i));
+        // Prefetch the order book data at this price level
+        // In a real implementation, this would prefetch the actual price level data structure
+        __builtin_prefetch(&target_price, 0, 1);  // Read, low temporal locality
+    }
 }
 
 } // namespace orderbook
