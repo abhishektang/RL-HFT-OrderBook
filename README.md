@@ -251,9 +251,53 @@ This project is for educational purposes. Use at your own risk in production env
 
 ## 🔗 References
 
-- Avellaneda, M., & Stoikov, S. (2008). "High-frequency trading in a limit order book"
-- CppCon 2024: "When Nanoseconds Matter" by David Gross
-- Welford's online algorithm for variance calculation
+### Academic Papers
+- Avellaneda, M., & Stoikov, S. (2008). "High-frequency trading in a limit order book." *Quantitative Finance*, 8(3), 217-224.
+- Welford, B. P. (1962). "Note on a method for calculating corrected sums of squares and products." *Technometrics*, 4(3), 419-420.
+
+### Industry Best Practices
+- **CppCon 2024**: "When Nanoseconds Matter: Competitive Advantage in High Frequency Trading" by David Gross
+  - Welford's online algorithm for O(1) variance calculation
+  - Cache-line alignment and cache-friendly data structures
+  - Ring buffers for fixed-size, allocation-free containers
+  - Branch prediction hints with `[[likely]]` and `[[unlikely]]`
+
+- **Imperial College London HFT Repository** (Dr. Paul A. Bilokon)
+  - GitHub: https://github.com/0burak/imperial_hft
+  - Constexpr compile-time optimizations
+  - Cache warming with `__builtin_prefetch`
+  - Branch reduction with error flags pattern
+  - Slow-path removal using `__attribute__((noinline))`
+  - Memory prefetching for order book traversal
+  - Short-circuit evaluation optimizations
+  - LMAX Disruptor pattern for lock-free communication
+
+### Technical Resources
+- **LMAX Disruptor**: High-performance inter-thread messaging framework
+  - GitHub: https://github.com/LMAX-Exchange/disruptor
+  - Mechanical Sympathy blog by Martin Thompson
+
+- **Google Benchmark**: Microbenchmarking library for C++
+  - GitHub: https://github.com/google/benchmark
+  - Used for rigorous performance testing
+
+### Optimization Techniques
+- **Cache Optimization**: Aligning data to cache line boundaries (64 bytes)
+- **Branch Prediction**: CPU speculation and pipeline optimization
+- **Memory Prefetching**: Software prefetch instructions for latency hiding
+- **Lock-Free Programming**: Atomic operations and memory ordering
+- **SIMD Vectorization**: AVX2/SSE for parallel data processing
+
+### Performance Analysis Tools
+- **perf** (Linux): CPU profiling and performance counters
+- **Intel VTune**: Advanced performance analysis
+- **Valgrind/Cachegrind**: Cache profiling and memory analysis
+- **gprof**: GNU profiler for hotspot identification
+
+### Trading & Market Microstructure
+- Harris, L. (2003). *Trading and Exchanges: Market Microstructure for Practitioners*
+- Hasbrouck, J. (2007). *Empirical Market Microstructure*
+- Cartea, Á., Jaimungal, S., & Penalva, J. (2015). *Algorithmic and High-Frequency Trading*
 
 ## 📧 Contact
 
