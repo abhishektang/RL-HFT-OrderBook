@@ -1,0 +1,48 @@
+# Build artifacts
+*.o
+*.out
+*.exe
+gmon.out
+
+# Executables
+orderbook
+orderbook_ui
+orderbook_market
+
+# Session reports (generated at runtime)
+SESSION_REPORT.md
+
+# Config with API keys
+config.json
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# Backup files
+*.bak
+*.backup
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.temp
